@@ -3,7 +3,7 @@ import os
 import threading
 import json
 import base64
-import re
+import re  # 用于 Markdown 正则清洗
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import DataFetcher
 from news_analyst import NewsAnalyst
@@ -18,11 +18,8 @@ tracker_lock = threading.Lock()
 
 def load_config():
     try:
-        if not os.path.exists('config.yaml'):
-            logger.warning("config.yaml 不存在，使用默认配置")
-            return {"funds": [], "global": {"base_invest_amount": 1000, "max_daily_invest": 5000}}
         with open('config.yaml', 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) or {}
+            return yaml.safe_load(f)
     except Exception as e:
         logger.error(f"配置文件读取失败: {e}")
         return {"funds": [], "global": {"base_invest_amount": 1000, "max_daily_invest": 5000}}
@@ -33,9 +30,12 @@ def clean_markdown(text):
     """
     if not text:
         return ""
+    # 1. 移除 ```html ... ``` 或 ```markdown ... ``` 块标签
     text = re.sub(r'```(?:html|markdown)?', '', text)
+    # 2. 移除常见的 Markdown 加粗和斜体标记 (**text** -> text)
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
     text = re.sub(r'__(.*?)__', r'\1', text)
+    # 3. 移除多余的 * 或 - 列表标记（仅针对行首）
     text = re.sub(r'^\s*[\*\-]\s+', '', text, flags=re.MULTILINE)
     return text.strip()
 
@@ -136,12 +136,14 @@ def render_html_report_v13(all_news, results, cio_html, advisor_html):
     COLOR_BG_MAIN = "#0f1215" 
     COLOR_BG_CARD = "#16191d" 
     
+    # 强力清洗 AI 生成的内容 (去除 ```html, **, 列表符等)
     cio_html = clean_markdown(cio_html)
     advisor_html = clean_markdown(advisor_html)
 
     news_html = ""
     if isinstance(all_news, list):
         for news in all_news:
+            # 兼容字典或纯字符串格式
             title = news.get('title', str(news)) if isinstance(news, dict) else str(news)
             news_html += f"""<div style="font-size:11px;color:{COLOR_TEXT_SUB};margin-bottom:5px;border-bottom:1px solid #25282c;padding-bottom:3px;"><span style="color:{COLOR_GOLD};margin-right:4px;">●</span>{title}</div>"""
     
@@ -154,41 +156,62 @@ def render_html_report_v13(all_news, results, cio_html, advisor_html):
         cro_signal = tech.get('tech_cro_signal', 'PASS')
         cro_comment = tech.get('tech_cro_comment', '无')
         
+        # 动态风控颜色
         cro_style = f"color:{COLOR_RED};font-weight:bold;" if cro_signal == "VETO" else f"color:{COLOR_GREEN};font-weight:bold;"
         
+        # 盈亏计算
         profit_html = ""
         if r.get('pos_shares', 0) > 0:
             p_val = (tech.get('price', 0) - r.get('pos_cost', 0)) * r.get('pos_shares', 0)
             p_color = COLOR_RED if p_val > 0 else COLOR_GREEN 
             profit_html = f"""<div style="font-size:12px;margin-bottom:8px;background:rgba(0,0,0,0.2);padding:4px 8px;border-radius:3px;display:flex;justify-content:space-between;border:1px solid #333;"><span style="color:{COLOR_TEXT_SUB};">持有盈亏:</span><span style="color:{p_color};font-weight:bold;">{p_val:+.1f}元</span></div>"""
         
+        # --- [修改处] 操作标签视觉优化 ---
         act_bg = ""
         act_border = ""
         act_text = ""
         act_content = ""
         
         if r['amount'] > 0:
+            # 买入样式
             act_bg = "rgba(250, 82, 82, 0.15)"
             act_border = COLOR_RED
             act_text = COLOR_RED
             act_content = f"⚡ 买入 {r['amount']:,}"
         elif r.get('is_sell'):
+            # 卖出样式
             act_bg = "rgba(81, 207, 102, 0.15)"
             act_border = COLOR_GREEN
             act_text = COLOR_GREEN
             act_content = f"💰 卖出 {int(r.get('sell_value',0)):,}"
         else:
+            # 观望样式
             act_bg = "rgba(255, 255, 255, 0.05)"
             act_border = "#495057"
             act_text = COLOR_TEXT_SUB
             act_content = "☕ 观望"
 
+        # 组装增强版操作徽章
         act_html = f"""
-        <span style="display:inline-block;background:{act_bg};color:{act_text};border:1px solid {act_border};padding:3px 10px;font-size:13px;font-weight:bold;border-radius:4px;min-width:60px;text-align:center;">{act_content}</span>
+        <span style="
+            display:inline-block;
+            background:{act_bg};
+            color:{act_text};
+            border:1px solid {act_border};
+            padding:3px 10px;
+            font-size:13px;
+            font-weight:bold;
+            border-radius:4px;
+            min-width:60px;
+            text-align:center;
+        ">{act_content}</span>
         """
+        # --- [修改结束] ---
         
+        # 理由标签
         reasons = " ".join([f"<span style='border:1px solid #444;background:rgba(255,255,255,0.05);padding:1px 4px;font-size:9px;border-radius:3px;color:{COLOR_TEXT_SUB};margin-right:3px;'>{x}</span>" for x in tech.get('quant_reasons', [])])
         
+        # 投委会部分 (需清洗 Markdown)
         ai_data = r.get('ai_analysis', {})
         bull_say = clean_markdown(ai_data.get('bull_view', '无'))
         bear_say = clean_markdown(ai_data.get('bear_view', '无'))
@@ -234,9 +257,10 @@ def render_html_report_v13(all_news, results, cio_html, advisor_html):
             {committee_html}
         </div>"""
 
+    # --- Logo 智能处理 (Base64 嵌入) ---
     logo_path = "logo.png"
     alt_logo_path = "Gemini_Generated_Image_d7oeird7oeird7oe.jpg"
-    logo_src = "[https://raw.githubusercontent.com/kken61291-eng/Fund-AI-Advisor/main/logo.png](https://raw.githubusercontent.com/kken61291-eng/Fund-AI-Advisor/main/logo.png)"
+    logo_src = "https://raw.githubusercontent.com/kken61291-eng/Fund-AI-Advisor/main/logo.png" # 兜底链接
     
     target_logo = logo_path if os.path.exists(logo_path) else (alt_logo_path if os.path.exists(alt_logo_path) else None)
     
@@ -250,6 +274,7 @@ def render_html_report_v13(all_news, results, cio_html, advisor_html):
         except Exception as e:
             logger.error(f"Logo 嵌入失败: {e}")
 
+    # --- 移动端响应式 HTML 结构 ---
     return f"""<!DOCTYPE html><html><head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
@@ -259,11 +284,13 @@ def render_html_report_v13(all_news, results, cio_html, advisor_html):
         .tech-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 11px; color: {COLOR_TEXT_SUB}; }}
         .debate-box {{ display: flex; gap: 10px; }}
         .debate-item {{ flex: 1; padding: 8px; border-radius: 4px; }}
+        /* 移动端核心适配 */
         @media (max-width: 480px) {{
             .debate-box {{ flex-direction: column; }}
             .tech-grid {{ grid-template-columns: 1fr; }}
             .main-container {{ padding: 10px; border: none; }}
         }}
+        /* 强制覆盖 AI 生成内容的背景色，防止白底 */
         .cio-content, .advisor-content {{ line-height: 1.6; font-size: 13px; color: #eee !important; }}
         .cio-content *, .advisor-content * {{ background: transparent !important; color: inherit !important; }}
     </style></head><body>
@@ -297,11 +324,10 @@ def process_single_fund(fund, config, fetcher, tracker, val_engine, analyst, mar
     used_news = []
     
     try:
-        logger.info(f"Analyzing {fund['name']} ({fund['code']})...")
+        logger.info(f"Analyzing {fund['name']}...")
         
         data = fetcher.get_fund_history(fund['code'])
         if data is None or data.empty: 
-            logger.warning(f"No data for {fund['name']}")
             return None, "", []
 
         tech = TechnicalAnalyzer.calculate_indicators(data)
@@ -309,9 +335,8 @@ def process_single_fund(fund, config, fetcher, tracker, val_engine, analyst, mar
         
         try:
             val_mult, val_desc = val_engine.get_valuation_status(fund.get('index_name'), fund.get('strategy_type'))
-        except Exception as e:
-            logger.warning(f"Valuation error for {fund['name']}: {e}")
-            val_mult, val_desc = 1.0, "估值未知"
+        except:
+            val_mult, val_desc = 1.0, "估值异常"
 
         with tracker_lock: pos = tracker.get_position(fund['code'])
 
@@ -331,7 +356,7 @@ def process_single_fund(fund, config, fetcher, tracker, val_engine, analyst, mar
                 ai_res = analyst.analyze_fund_v5(fund['name'], tech, None, market_context, risk_payload, fund.get('strategy_type', 'core'))
                 ai_adj = ai_res.get('adjustment', 0)
             except Exception as e:
-                logger.error(f"AI Analysis Failed for {fund['name']}: {e}")
+                logger.error(f"AI Analysis Failed: {e}")
                 ai_res = {"bull_view": "Error", "bear_view": "Error", "comment": "Offline", "adjustment": 0}
 
         ai_decision = ai_res.get('decision', 'PASS') 
@@ -342,14 +367,15 @@ def process_single_fund(fund, config, fetcher, tracker, val_engine, analyst, mar
         
         with tracker_lock:
             tracker.record_signal(fund['code'], lbl)
-            if amt > 0: tracker.add_trade(fund['code'], fund['name'], amt, tech.get('price', 0))
-            elif is_sell: tracker.add_trade(fund['code'], fund['name'], s_val, tech.get('price', 0), True)
+            if amt > 0: tracker.add_trade(fund['code'], fund['name'], amt, tech['price'])
+            elif is_sell: tracker.add_trade(fund['code'], fund['name'], s_val, tech['price'], True)
 
         bull = ai_res.get('bull_view') or ai_res.get('bull_say', '无')
         bear = ai_res.get('bear_view') or ai_res.get('bear_say', '无')
         if bull != '无':
             logger.info(f"🗣️ [投委会 {fund['name']}] CGO:{bull[:20]}... | CRO:{bear[:20]}...")
 
+        # 恢复详细的日志记录，以便 CIO 报告使用
         reason_str = ",".join(tech.get('quant_reasons', []))
         cio_log = f"标的:{fund['name']} | 决策:{lbl} (分:{tech['final_score']} AI:{ai_adj}) | 理由:{reason_str}"
 
@@ -366,16 +392,6 @@ def process_single_fund(fund, config, fetcher, tracker, val_engine, analyst, mar
 
 def main():
     config = load_config()
-    funds = config.get('funds', [])
-    # 安全获取 global 配置，防止 Key Error
-    global_conf = config.get('global', {})
-    base_invest = global_conf.get('base_invest_amount', 1000)
-    max_daily = global_conf.get('max_daily_invest', 5000)
-
-    if not funds:
-        logger.error("配置文件中没有找到基金列表 (funds is empty)")
-        return
-
     fetcher = DataFetcher()
     tracker = PortfolioTracker()
     val_engine = ValuationEngine()
@@ -385,20 +401,21 @@ def main():
     try:
         analyst = NewsAnalyst()
     except Exception:
-        logger.warning("NewsAnalyst 初始化失败，将跳过 AI 分析")
         analyst = None
 
     logger.info("📖 正在构建全天候舆情上下文...")
     market_context = analyst.get_market_context() if analyst else "无新闻数据"
     logger.info(f"🌍 舆情上下文长度: {len(market_context)} 字符")
     
+    # 修复：恢复新闻列表解析逻辑，否则邮件新闻栏为空
     all_news_seen = []
     if market_context and market_context != "今日暂无重大新闻。":
         for line in market_context.split('\n'):
-            line = line.strip()
-            # 兼容更多列表格式：[标题], * 标题, - 标题
-            if line and (line.startswith('[') or line.startswith('*') or line.startswith('-')):
-                all_news_seen.append(line)
+            try:
+                if line.strip().startswith('['):
+                    all_news_seen.append(line.strip())
+            except Exception:
+                pass
 
     results = []; cio_lines = [f"【宏观环境】: (见独立审计报告)\n"]
     
@@ -406,30 +423,28 @@ def main():
         future_to_fund = {executor.submit(
             process_single_fund, 
             fund, config, fetcher, tracker, val_engine, analyst, market_context, 
-            base_invest, max_daily
-        ): fund for fund in funds}
+            config['global']['base_invest_amount'], config['global']['max_daily_invest']
+        ): fund for fund in config.get('funds', [])}
         
         for future in as_completed(future_to_fund):
             try:
                 res, log, _ = future.result()
                 if res: 
                     results.append(res)
-                    if log:
-                        cio_lines.append(log)
-            except Exception as e: 
-                logger.error(f"Thread Execution Exception: {e}")
+                    cio_lines.append(log)
+            except Exception as e: logger.error(f"Thread Error: {e}")
 
     if results:
         results.sort(key=lambda x: -x['tech'].get('final_score', 0))
         full_report = "\n".join(cio_lines)
         
-        cio_html = analyst.review_report(full_report, market_context) if analyst else "<p>CIO Missing (Analyst Offline)</p>"
+        # AI 总结
+        cio_html = analyst.review_report(full_report, market_context) if analyst else "<p>CIO Missing</p>"
         advisor_html = analyst.advisor_review(full_report, market_context) if analyst else "<p>Advisor Offline</p>"
         
+        # 渲染邮件 (传入完整的新闻列表)
         html = render_html_report_v13(all_news_seen, results, cio_html, advisor_html) 
         
         send_email("🕊️ 鹊知风 V15.20 洞察微澜，御风而行", html, attachment_path=LOG_FILENAME)
-    else:
-        logger.warning("本次运行未产生任何有效分析结果，跳过发送邮件。")
 
 if __name__ == "__main__": main()
