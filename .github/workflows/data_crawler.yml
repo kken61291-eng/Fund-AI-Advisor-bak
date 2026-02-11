@@ -1,0 +1,71 @@
+name: Daily Data Crawler
+
+on:
+  schedule:
+    # 每小时第 30 分钟运行 (注意：GitHub 可能有 10-30 分钟延迟)
+    - cron: '30 * * * *'
+  workflow_dispatch:
+
+# [新增] 必须赋予写入权限，否则最后的 git push 会失败
+permissions:
+  contents: write
+
+jobs:
+  fetch_data:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        # [核心修复] 必须强制升级 akshare 到最新版！
+        pip install --upgrade akshare
+
+    # ----------------------------------------------------------------
+    # 步骤 1: 抓取 7x24 全球财经电报 (News)
+    # ----------------------------------------------------------------
+    - name: 🕷️ Run News Crawler
+      run: |
+        python news_loader.py
+
+    # ----------------------------------------------------------------
+    # 步骤 2: 抓取 基金交易/行情数据 (Market)
+    # ----------------------------------------------------------------
+    - name: 📈 Run Market Data Fetcher
+      # 注意：由于代码中增加了东财50秒延时，请确保总运行时间不超过6小时
+      run: |
+        python data_fetcher.py
+
+    # ----------------------------------------------------------------
+    # 步骤 3: 提交并保存数据
+    # ----------------------------------------------------------------
+    - name: 💾 Commit and Push Data
+      run: |
+        # 配置 git 用户
+        git config --global user.name "GitHub Action"
+        git config --global user.email "action@github.com"
+        
+        # 添加数据目录
+        git add data_news/
+        git add data_cache/ || true
+        
+        # 检查是否有变动
+        if [[ -n $(git status --porcelain) ]]; then
+          echo "检测到数据更新，正在提交..."
+          git commit -m "📡 Auto-update News & Market data [skip ci]"
+          git push
+        else
+          echo "No new data found, skipping commit."
+        fi

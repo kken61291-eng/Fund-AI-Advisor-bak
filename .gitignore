@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.env
+.venv/
+venv/
+ENV/
+.idea/
+.vscode/
+*.log
+config_local.yaml
