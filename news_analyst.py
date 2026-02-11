@@ -213,7 +213,7 @@ class NewsAnalyst:
         3. ⚖️ CIO (决策中枢):
            - 核心: 计算 Risk-Reward Ratio (盈亏比) 与 Position Sizing (仓位)。
            - 铁律: 必须给出具体的仓位调整建议 (adjustment)。
-           - 视角: 必须包含 **JPY (日元)** 汇率维度及日本地缘视角的考量。
+           
 
         【任务】
         仅基于提供的数据，模拟上述三位角色的辩论。
@@ -223,7 +223,7 @@ class NewsAnalyst:
         {{
             "bull_view": "CGO观点 (聚焦赔率/催化剂/直接因果)",
             "bear_view": "CRO观点 (聚焦敞口/对冲/本金安全/非通用恐慌)",
-            "chairman_conclusion": "CIO最终裁决 (包含日本视角/盈亏比计算)",
+            "chairman_conclusion": "CIO最终裁决 (盈亏比计算)",
             "decision": "EXECUTE|REJECT|HOLD",
             "adjustment": -100 ~ 100 (建议仓位调整比例)
         }}
@@ -288,7 +288,7 @@ class NewsAnalyst:
         2. 策略一致性检查 (Strategy Consistency Check):
            - 审查投委会的操作是否精神分裂？
            - 例如：如果宏观定调为"极度恐慌"，但决策却在买入高风险小盘股，请严厉指出。
-           - 检查是否忽视了日本视角（如日元汇率风险）。
+        
 
         3. 风险提示 (Risk Radar):
            - 指出数据中隐含的 Tail Risk (尾部风险)。
